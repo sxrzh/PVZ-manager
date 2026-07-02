@@ -1,10 +1,9 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use chrono::Local;
 use super::models::ManagerData;
 use super::file_io::{
     init_save_path, load_manager_data, save_manager_data, backup_game_file,
-    restore_game_file, delete_backup_file, load_game_ids, search_game_id,
+    restore_game_file, delete_backup_file, delete_game_file, load_game_ids, search_game_id,
     get_backup_file_path, check_game_file_exists, get_game_file_path,
 };
 
@@ -42,6 +41,13 @@ pub fn run_cli() -> Result<()> {
     init_save_path()?;
     let mut data = load_manager_data()?;
 
+    if let Some(Commands::SetUser { user_id }) = &cli.command {
+        data.user_id = Some(*user_id);
+        save_manager_data(&data)?;
+        println!("User ID set to: {}", user_id);
+        return Ok(());
+    }
+
     let user_id = if let Some(id) = data.user_id {
         id
     } else {
@@ -50,10 +56,7 @@ pub fn run_cli() -> Result<()> {
     };
 
     match cli.command {
-        Some(Commands::SetUser { user_id }) => {
-            data.user_id = Some(user_id);
-            save_manager_data(&data)?;
-            println!("User ID set to: {}", user_id);
+        Some(Commands::SetUser { user_id: _ }) => {
         }
         Some(Commands::ListGames) => {
             let game_ids = load_game_ids()?;
@@ -71,17 +74,18 @@ pub fn run_cli() -> Result<()> {
             }
         }
         Some(Commands::ListNodes { game_id }) => {
-            let _root_id = data.get_root_id(user_id, game_id);
+            data.get_root_id(game_id);
             println!("Nodes for game {}:", game_id);
             for node in data.get_children(game_id, -1) {
                 print_node_recursive(&data, game_id, node.id, 0);
             }
         }
         Some(Commands::Backup { game_id, name, note }) => {
-            let parent_id = data.get_current_parent(user_id, game_id);
-            let node_id = data.create_node(user_id, game_id, parent_id, name, note);
+            data.get_root_id(game_id);
+            let parent_id = data.get_current_parent(game_id);
+            let node_id = data.create_node(game_id, parent_id, name, note);
             if backup_game_file(user_id, game_id, node_id)? {
-                data.set_current_parent(user_id, game_id, node_id as i32);
+                data.set_current_parent(game_id, node_id as i32);
                 save_manager_data(&data)?;
                 println!("Backup created successfully (ID: {})", node_id);
             } else {
@@ -94,8 +98,18 @@ pub fn run_cli() -> Result<()> {
                     println!("Failed: Backup file has been deleted");
                     return Ok(());
                 }
-                if restore_game_file(user_id, game_id, node_id)? {
-                    data.set_current_parent(user_id, game_id, node_id as i32);
+                if node_id == 0 {
+                    if delete_game_file(user_id, game_id)? {
+                        data.set_current_parent(game_id, node_id as i32);
+                        save_manager_data(&data)?;
+                        println!("Successfully restored to backup {} (root)", node_id);
+                    }
+                    else {
+                        println!("Successfully: Game file does not exist");
+                    }
+                }
+                else if restore_game_file(user_id, game_id, node_id)? {
+                    data.set_current_parent(game_id, node_id as i32);
                     save_manager_data(&data)?;
                     println!("Successfully restored to backup {}", node_id);
                 } else {
@@ -109,11 +123,6 @@ pub fn run_cli() -> Result<()> {
             if let Some(node) = data.find_node(game_id, node_id) {
                 if node.parent_id == -1 {
                     println!("Failed: Cannot delete root node");
-                    return Ok(());
-                }
-                let current_parent = data.get_current_parent(user_id, game_id);
-                if current_parent == node_id as i32 {
-                    println!("Failed: Cannot delete current node");
                     return Ok(());
                 }
                 if delete_backup_file(user_id, game_id, node_id)? {
@@ -133,11 +142,6 @@ pub fn run_cli() -> Result<()> {
             if let Some(node) = data.find_node(game_id, node_id) {
                 if node.parent_id == -1 {
                     println!("Failed: Cannot rename root node");
-                    return Ok(());
-                }
-                let current_parent = data.get_current_parent(user_id, game_id);
-                if current_parent == node_id as i32 {
-                    println!("Failed: Cannot rename current node");
                     return Ok(());
                 }
                 if let Some(node_mut) = data.find_node_mut(game_id, node_id) {
@@ -171,11 +175,11 @@ pub fn run_cli() -> Result<()> {
         }
         Some(Commands::ShowTree { game_id }) => {
             println!("Version tree for game {}:", game_id);
-            let root_id = data.get_root_id(user_id, game_id);
+            let root_id = data.get_root_id(game_id);
             if let Some(root) = data.find_node(game_id, root_id) {
                 print_tree_node(&data, game_id, root, 0);
             }
-            let current_parent = data.get_current_parent(user_id, game_id);
+            let current_parent = data.get_current_parent(game_id);
             if current_parent != -1 {
                 if let Some(cur_node) = data.find_node(game_id, current_parent as u32) {
                     println!("\nCurrent: -> {} (ID: {})", cur_node.name, current_parent);
@@ -186,7 +190,7 @@ pub fn run_cli() -> Result<()> {
             }
         }
         Some(Commands::ShowCurrent { game_id }) => {
-            let current_parent = data.get_current_parent(user_id, game_id);
+            let current_parent = data.get_current_parent(game_id);
             if current_parent == -1 {
                 println!("No current save or current parent is root");
             } else if let Some(node) = data.find_node(game_id, current_parent as u32) {

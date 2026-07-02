@@ -100,7 +100,7 @@ impl PVZManagerApp {
             match action.action_type {
                 ConfirmActionType::Restore => {
                     if restore_game_file(action.user_id, action.game_id, action.node_id).unwrap() {
-                        self.data.set_current_parent(action.user_id, action.game_id, action.node_id as i32);
+                        self.data.set_current_parent(action.game_id, action.node_id as i32);
                         save_manager_data(&self.data).unwrap();
                         self.show_message("恢复成功".to_string());
                     } else {
@@ -124,7 +124,7 @@ impl PVZManagerApp {
         self.show_confirm = false;
     }
 
-    fn render_tree_node(&mut self, ui: &mut egui::Ui, _user_id: u32, game_id: u32, node_id: u32, depth: usize) {
+    fn render_tree_node(&mut self, ui: &mut egui::Ui, game_id: u32, node_id: u32, depth: usize) {
         if let Some(node) = self.data.find_node(game_id, node_id).cloned() {
             let indent = (depth * 20) as f32;
             let children_ids: Vec<u32> = self.data.get_children(game_id, node_id as i32)
@@ -146,7 +146,7 @@ impl PVZManagerApp {
             });
             
             for child_id in children_ids {
-                self.render_tree_node(ui, _user_id, game_id, child_id, depth + 1);
+                self.render_tree_node(ui, game_id, child_id, depth + 1);
             }
         }
     }
@@ -193,7 +193,7 @@ impl PVZManagerApp {
 
                         ui.add_space(10.0);
 
-                        let current_parent = self.data.get_current_parent(user_id, game_id);
+                        let current_parent = self.data.get_current_parent(game_id);
                         if current_parent != node_id as i32 {
                             if ui.add(Button::new(RichText::new("删除此备份").text_style(TextStyle::Heading))).clicked() {
                                 self.show_confirm(
@@ -329,10 +329,11 @@ impl eframe::App for PVZManagerApp {
                     self.view_mode = ViewMode::Tree;
                 }
                 if ui.button("备份当前存档").clicked() {
-                    let parent_id = self.data.get_current_parent(user_id, game_id);
-                    let node_id = self.data.create_node(user_id, game_id, parent_id, "未命名备份".to_string(), String::new());
+                    self.data.get_root_id(game_id);
+                    let parent_id = self.data.get_current_parent(game_id);
+                    let node_id = self.data.create_node(game_id, parent_id, "未命名备份".to_string(), String::new());
                     if backup_game_file(user_id, game_id, node_id).unwrap() {
-                        self.data.set_current_parent(user_id, game_id, node_id as i32);
+                        self.data.set_current_parent(game_id, node_id as i32);
                         save_manager_data(&self.data).unwrap();
                         self.show_message(format!("备份成功（ID: {}）", node_id));
                     } else {
@@ -374,9 +375,9 @@ impl eframe::App for PVZManagerApp {
                     }
                 }
                 ViewMode::Tree => {
-                    let root_id = self.data.get_root_id(user_id, game_id);
+                    let root_id = self.data.get_root_id(game_id);
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        self.render_tree_node(ui, user_id, game_id, root_id, 0);
+                        self.render_tree_node(ui, game_id, root_id, 0);
                     });
                 }
             }

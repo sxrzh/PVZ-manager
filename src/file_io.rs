@@ -5,19 +5,26 @@ use std::path::{Path, PathBuf};
 use serde_json::from_str;
 use super::models::ManagerData;
 
-pub const SAVE_PATH: &str = "C:\\ProgramData\\PVZ-manager";
 pub const USERDATA_PATH: &str = "C:\\ProgramData\\PopCap Games\\PlantsVsZombies\\userdata";
 
+pub fn get_save_path() -> PathBuf {
+    // To change the path for saving data of PVZ-manager, change this function.
+    // Currently it is C:\Users\*\AppData\Local\PVZ-Manager
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("PVZ-manager")
+}
+
 pub fn init_save_path() -> Result<()> {
-    let path = Path::new(SAVE_PATH);
+    let path = get_save_path();
     if !path.exists() {
-        fs::create_dir_all(path).context("Failed to create save directory")?;
+        fs::create_dir_all(&path).context("Failed to create save directory")?;
     }
     Ok(())
 }
 
 pub fn load_manager_data() -> Result<ManagerData> {
-    let path = Path::new(SAVE_PATH).join("manager.json");
+    let path = get_save_path().join("manager.json");
     if !path.exists() {
         return Ok(ManagerData::new());
     }
@@ -26,15 +33,15 @@ pub fn load_manager_data() -> Result<ManagerData> {
 }
 
 pub fn save_manager_data(data: &ManagerData) -> Result<()> {
-    let path = Path::new(SAVE_PATH).join("manager.json");
+    let path = get_save_path().join("manager.json");
     let content = serde_json::to_string_pretty(data).context("Failed to serialize manager data")?;
     let mut file = File::create(&path).context("Failed to create manager.json")?;
     file.write_all(content.as_bytes()).context("Failed to write manager.json")?;
     Ok(())
 }
 
-pub fn get_backup_file_path(user_id: u32, _game_id: u32, node_id: u32) -> PathBuf {
-    Path::new(SAVE_PATH).join(format!("game{}_backup{}.dat", user_id, node_id))
+pub fn get_backup_file_path(user_id: u32, game_id: u32, node_id: u32) -> PathBuf {
+    get_save_path().join(format!("game{}_{}backup{}.dat", user_id, game_id, node_id))
 }
 
 pub fn get_game_file_path(user_id: u32, game_id: u32) -> PathBuf {
@@ -58,6 +65,15 @@ pub fn restore_game_file(user_id: u32, game_id: u32, node_id: u32) -> Result<boo
     }
     let dest = get_game_file_path(user_id, game_id);
     fs::copy(&source, &dest).context("Failed to copy backup file")?;
+    Ok(true)
+}
+
+pub fn delete_game_file(user_id: u32, game_id: u32) -> Result<bool> {
+    let dest = get_game_file_path(user_id, game_id);
+    if !dest.exists() {
+        return Ok(false);
+    }
+    fs::remove_file(&dest).context("Failed to remove userdata file")?;
     Ok(true)
 }
 
