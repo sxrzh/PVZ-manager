@@ -30,6 +30,7 @@ enum Commands {
     ShowNode { game_id: u32, node_id: u32 },
     ShowTree { game_id: u32 },
     ShowCurrent { game_id: u32 },
+    CleanEmpty { game_id: u32 },
 }
 
 pub fn run_cli() -> Result<()> {
@@ -200,6 +201,9 @@ pub fn run_cli() -> Result<()> {
                 println!("Current parent node not found");
             }
         }
+        Some(Commands::CleanEmpty { game_id }) => {
+            clean_empty_nodes(&mut data, user_id, game_id)?;
+        }
         None => {
             println!("No command specified. Use --help for available commands.");
         }
@@ -254,4 +258,74 @@ fn print_tree_node_with_adj(data: &ManagerData, game_id: u32, node: &super::mode
             print_tree_node_with_adj(data, game_id, child, depth + 1, adj);
         }
     }
+}
+
+fn clean_empty_nodes(data: &mut ManagerData, user_id: u32, game_id: u32) -> Result<()> {
+    if !data.data.contains_key(&game_id) {
+        println!("No data for game {}", game_id);
+        return Ok(());
+    }
+
+    let current_parent = data.get_current_parent(game_id);
+    let adj_list = build_adjacency_list(data, game_id);
+    
+    let mut flags: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
+    
+    calculate_flags(data, game_id, 0, &adj_list, current_parent, &mut flags);
+    
+    let mut to_delete: Vec<u32> = Vec::new();
+    for (&node_id, &flag) in &flags {
+        if !flag && node_id != 0 {
+            to_delete.push(node_id);
+        }
+    }
+    
+    if to_delete.is_empty() {
+        println!("No empty nodes to clean");
+        return Ok(());
+    }
+    
+    {
+        let game_data = data.data.get_mut(&game_id).unwrap();
+        game_data.nodes.retain(|n| !to_delete.contains(&n.id));
+    }
+    
+    save_manager_data(data)?;
+    println!("Cleaned {} empty nodes successfully", to_delete.len());
+    
+    Ok(())
+}
+
+fn calculate_flags(
+    data: &ManagerData,
+    game_id: u32,
+    node_id: u32,
+    adj: &std::collections::HashMap<i32, Vec<&super::models::Node>>,
+    current_parent: i32,
+    flags: &mut std::collections::HashMap<u32, bool>,
+) {
+    if let Some(children) = adj.get(&(node_id as i32)) {
+        for child in children {
+            calculate_flags(data, game_id, child.id, adj, current_parent, flags);
+        }
+    }
+    
+    let mut flag = false;
+    
+    if let Some(node) = data.find_node(game_id, node_id) {
+        if node.id == 0 || (current_parent != -1 && node.id == current_parent as u32) || !node.file_deleted {
+            flag = true;
+        } else {
+            if let Some(children) = adj.get(&(node_id as i32)) {
+                for child in children {
+                    if *flags.get(&child.id).unwrap_or(&false) {
+                        flag = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    flags.insert(node_id, flag);
 }
