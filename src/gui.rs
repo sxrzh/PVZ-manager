@@ -125,10 +125,23 @@ impl PVZManagerApp {
     }
 
     fn render_tree_node(&mut self, ui: &mut egui::Ui, game_id: u32, node_id: u32, depth: usize) {
+        let adj_list = self.build_adjacency_list(game_id);
+        self.render_tree_node_with_adj(ui, game_id, node_id, depth, &adj_list);
+    }
+
+    fn build_adjacency_list(&self, game_id: u32) -> std::collections::HashMap<i32, Vec<u32>> {
+        let mut adj = std::collections::HashMap::new();
+        if let Some(game_data) = self.data.data.get(&game_id) {
+            for node in &game_data.nodes {
+                adj.entry(node.parent_id).or_insert_with(Vec::new).push(node.id);
+            }
+        }
+        adj
+    }
+
+    fn render_tree_node_with_adj(&mut self, ui: &mut egui::Ui, game_id: u32, node_id: u32, depth: usize, adj: &std::collections::HashMap<i32, Vec<u32>>) {
         if let Some(node) = self.data.find_node(game_id, node_id).cloned() {
             let indent = (depth * 20) as f32;
-            let children_ids: Vec<u32> = self.data.get_children(game_id, node_id as i32)
-                .iter().map(|c| c.id).collect();
             
             ui.horizontal(|ui| {
                 ui.add_space(indent);
@@ -145,8 +158,10 @@ impl PVZManagerApp {
                 }
             });
             
-            for child_id in children_ids {
-                self.render_tree_node(ui, game_id, child_id, depth + 1);
+            if let Some(children) = adj.get(&(node_id as i32)) {
+                for child_id in children {
+                    self.render_tree_node_with_adj(ui, game_id, *child_id, depth + 1, adj);
+                }
             }
         }
     }

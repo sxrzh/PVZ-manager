@@ -209,17 +209,39 @@ pub fn run_cli() -> Result<()> {
 }
 
 fn print_node_recursive(data: &ManagerData, game_id: u32, node_id: u32, depth: usize) {
+    let adj_list = build_adjacency_list(data, game_id);
+    print_node_recursive_with_adj(data, game_id, node_id, depth, &adj_list);
+}
+
+fn print_node_recursive_with_adj(data: &ManagerData, game_id: u32, node_id: u32, depth: usize, adj: &std::collections::HashMap<i32, Vec<&super::models::Node>>) {
     if let Some(node) = data.find_node(game_id, node_id) {
         let prefix = "  ".repeat(depth);
         let status = if node.file_deleted { "[DELETED]" } else { "" };
         println!("{}{} {} (ID: {})", prefix, status, node.name, node.id);
-        for child in data.get_children(game_id, node_id as i32) {
-            print_node_recursive(data, game_id, child.id, depth + 1);
+        if let Some(children) = adj.get(&(node_id as i32)) {
+            for child in children {
+                print_node_recursive_with_adj(data, game_id, child.id, depth + 1, adj);
+            }
         }
     }
 }
 
 fn print_tree_node(data: &ManagerData, game_id: u32, node: &super::models::Node, depth: usize) {
+    let adj_list = build_adjacency_list(data, game_id);
+    print_tree_node_with_adj(data, game_id, node, depth, &adj_list);
+}
+
+fn build_adjacency_list(data: &ManagerData, game_id: u32) -> std::collections::HashMap<i32, Vec<&super::models::Node>> {
+    let mut adj = std::collections::HashMap::new();
+    if let Some(game_data) = data.data.get(&game_id) {
+        for node in &game_data.nodes {
+            adj.entry(node.parent_id).or_insert_with(Vec::new).push(node);
+        }
+    }
+    adj
+}
+
+fn print_tree_node_with_adj(data: &ManagerData, game_id: u32, node: &super::models::Node, depth: usize, adj: &std::collections::HashMap<i32, Vec<&super::models::Node>>) {
     let prefix = "  ".repeat(depth);
     let status = match (node.parent_id == -1, node.file_deleted) {
         (true, _) => "[ROOT]",
@@ -227,7 +249,9 @@ fn print_tree_node(data: &ManagerData, game_id: u32, node: &super::models::Node,
         (false, false) => "",
     };
     println!("{}{} {} (ID: {})", prefix, status, node.name, node.id);
-    for child in data.get_children(game_id, node.id as i32) {
-        print_tree_node(data, game_id, child, depth + 1);
+    if let Some(children) = adj.get(&(node.id as i32)) {
+        for child in children {
+            print_tree_node_with_adj(data, game_id, child, depth + 1, adj);
+        }
     }
 }
