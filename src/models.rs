@@ -54,7 +54,11 @@ impl ManagerData {
 
     pub fn create_node(&mut self, game_id: u32, parent_id: i32, name: String, note: String) -> u32 {
         let game_data = self.get_or_create_game_data(game_id);
-        let node_id = game_data.nodes.len() as u32;
+        let existing_ids: std::collections::HashSet<_> = game_data.nodes.iter().map(|n| n.id).collect();
+        let mut node_id = 1 as u32;
+        while existing_ids.contains(&node_id) {
+            node_id += 1;
+        }
         game_data.nodes.push(Node {
             id: node_id,
             name,
