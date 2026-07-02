@@ -285,6 +285,14 @@ fn clean_empty_nodes(data: &mut ManagerData, user_id: u32, game_id: u32) -> Resu
         return Ok(());
     }
     
+    println!("Cleaning {} empty nodes:", to_delete.len());
+    for node_id in &to_delete {
+        if let Some(node) = data.find_node(game_id, *node_id) {
+            println!("  Deleting node {} (ID: {})", node.name, node_id);
+        }
+        delete_backup_file(user_id, game_id, *node_id)?;
+    }
+    
     {
         let game_data = data.data.get_mut(&game_id).unwrap();
         game_data.nodes.retain(|n| !to_delete.contains(&n.id));
