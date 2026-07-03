@@ -1,10 +1,11 @@
 use eframe::egui;
-use egui::{Color32, RichText, TextStyle, Button};
+use egui::{Color32, RichText, TextStyle, Button, FontDefinitions};
 use std::collections::HashMap;
 use super::models::ManagerData;
 use super::file_io::{
     init_save_path, load_manager_data, save_manager_data, backup_game_file,
     restore_game_file, delete_backup_file, load_game_ids, search_game_id,
+    check_game_file_exists,
 };
 
 #[derive(Clone, PartialEq)]
@@ -51,10 +52,30 @@ pub struct PVZManagerApp {
 }
 
 impl PVZManagerApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         init_save_path().unwrap();
         let data = load_manager_data().unwrap();
         let game_ids = load_game_ids().unwrap_or_default();
+        
+        let mut fonts = FontDefinitions::default();
+        let msyh_path = "C:\\Windows\\Fonts\\msyh.ttc";
+        if let Ok(font_bytes) = std::fs::read(msyh_path) {
+            fonts.font_data.insert(
+                "msyh".to_string(),
+                egui::FontData::from_owned(font_bytes),
+            );
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .insert(0, "msyh".to_string());
+            fonts
+                .families
+                .entry(egui::FontFamily::Monospace)
+                .or_default()
+                .insert(0, "msyh".to_string());
+            cc.egui_ctx.set_fonts(fonts);
+        }
         
         let user_id_dialog = UserIdDialog {
             user_id: String::new(),
@@ -163,6 +184,19 @@ impl PVZManagerApp {
                     self.render_tree_node_with_adj(ui, game_id, *child_id, depth + 1, adj);
                 }
             }
+            
+            let current_parent = self.data.get_current_parent(game_id);
+            if current_parent == node_id as i32 {
+                if let Some(user_id) = self.data.user_id {
+                    if check_game_file_exists(user_id, game_id) {
+                        let current_indent = ((depth + 1) * 20) as f32;
+                        ui.horizontal(|ui| {
+                            ui.add_space(current_indent);
+                            ui.label(RichText::new("当前存档").color(Color32::GREEN));
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -208,21 +242,16 @@ impl PVZManagerApp {
 
                         ui.add_space(10.0);
 
-                        let current_parent = self.data.get_current_parent(game_id);
-                        if current_parent != node_id as i32 {
-                            if ui.add(Button::new(RichText::new("删除此备份").text_style(TextStyle::Heading))).clicked() {
-                                self.show_confirm(
-                                    "确定要删除此备份吗？删除后可以恢复，但文件将被移除！".to_string(),
-                                    ConfirmAction {
-                                        game_id,
-                                        node_id,
-                                        user_id,
-                                        action_type: ConfirmActionType::Delete,
-                                    }
-                                );
-                            }
-                        } else {
-                            ui.label(RichText::new("当前节点不能删除").color(Color32::RED));
+                        if ui.add(Button::new(RichText::new("删除此备份").text_style(TextStyle::Heading))).clicked() {
+                            self.show_confirm(
+                                "确定要删除此备份吗？删除后可以恢复，但文件将被移除！".to_string(),
+                                ConfirmAction {
+                                    game_id,
+                                    node_id,
+                                    user_id,
+                                    action_type: ConfirmActionType::Delete,
+                                }
+                            );
                         }
                     } else {
                         ui.label(RichText::new("根节点不能恢复或删除").color(Color32::RED));
@@ -309,93 +338,108 @@ impl eframe::App for PVZManagerApp {
             ui.heading(format!("PVZ 存档管理器 - 用户 {}", user_id));
             ui.add_space(10.0);
 
-            ui.text_edit_singleline(&mut self.search_query);
-            let results = search_game_id(&self.game_ids, &self.search_query);
-            
-            if !results.is_empty() {
-                ui.group(|ui| {
-                    ui.label("搜索结果：");
-                    for (name, id) in &results {
-                        if ui.button(format!("{} (ID: {})", name, id)).clicked() {
-                            self.selected_game = Some(*id);
-                            self.search_query.clear();
-                        }
-                    }
-                });
-            }
+            let available_height = ui.available_height();
+            let top_height = available_height * (1.0 / 3.0);
+            let bottom_height = available_height * (2.0 / 3.0);
 
-            ui.add_space(10.0);
-
-            if self.selected_game.is_none() {
-                ui.label("请从上方搜索框输入游戏名称或编号进行选择");
-                return;
-            }
-
-            let game_id = self.selected_game.unwrap();
-            ui.label(format!("当前游戏：{} (ID: {})", self.get_game_name(game_id), game_id));
-
-            ui.add_space(10.0);
-
-            ui.horizontal(|ui| {
-                if ui.selectable_label(self.view_mode == ViewMode::Table, "表格模式").clicked() {
-                    self.view_mode = ViewMode::Table;
-                }
-                if ui.selectable_label(self.view_mode == ViewMode::Tree, "树形模式").clicked() {
-                    self.view_mode = ViewMode::Tree;
-                }
-                if ui.button("备份当前存档").clicked() {
-                    self.data.get_root_id(game_id);
-                    let parent_id = self.data.get_current_parent(game_id);
-                    let node_id = self.data.create_node(game_id, parent_id, "未命名备份".to_string(), String::new());
-                    if backup_game_file(user_id, game_id, node_id).unwrap() {
-                        self.data.set_current_parent(game_id, node_id as i32);
-                        save_manager_data(&self.data).unwrap();
-                        self.show_message(format!("备份成功（ID: {}）", node_id));
-                    } else {
-                        self.show_message("备份失败：游戏文件不存在".to_string());
-                    }
-                }
-            });
-
-            ui.add_space(10.0);
-
-            match self.view_mode {
-                ViewMode::Table => {
-                    let nodes: Vec<_> = self.data.data.get(&game_id)
-                        .map(|g| g.nodes.iter().filter(|n| n.parent_id != -1 && !n.file_deleted).cloned().collect())
-                        .unwrap_or_default();
-
-                    if nodes.is_empty() {
-                        ui.label("暂无存档备份");
-                    } else {
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            for node in nodes {
-                                ui.group(|ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label(format!("{}", node.id));
-                                        ui.label(node.name.clone());
-                                        ui.label(node.created_at.format("%Y-%m-%d %H:%M:%S").to_string());
-                                        if !node.note.is_empty() {
-                                            ui.label(RichText::new(&node.note).color(Color32::GREEN));
-                                        }
-                                    });
-                                    if ui.button("查看详情").clicked() {
-                                        self.node_dialog.game_id = game_id;
-                                        self.node_dialog.node_id = node.id;
-                                        self.node_dialog.show = true;
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), top_height),
+                egui::Layout::top_down(egui::Align::Center),
+                |ui| {
+                    ui.text_edit_singleline(&mut self.search_query);
+                    let results = search_game_id(&self.game_ids, &self.search_query);
+                    
+                    egui::ScrollArea::vertical().id_source("search_results_scroll").max_height(top_height - 60.0).show(ui, |ui| {
+                        if !results.is_empty() {
+                            ui.group(|ui| {
+                                ui.label("搜索结果：");
+                                for (name, id) in &results {
+                                    if ui.button(format!("{} (ID: {})", name, id)).clicked() {
+                                        self.selected_game = Some(*id);
+                                        self.search_query.clear();
                                     }
-                                });
+                                }
+                            });
+                        }
+                    });
+                },
+            );
+
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), bottom_height),
+                egui::Layout::top_down(egui::Align::Center),
+                |ui| {
+                    if self.selected_game.is_none() {
+                        ui.label("请从上方搜索框输入游戏名称或编号进行选择");
+                    } else {
+                        let game_id = self.selected_game.unwrap();
+                        ui.label(format!("当前游戏：{} (ID: {})", self.get_game_name(game_id), game_id));
+
+                        ui.add_space(10.0);
+
+                        ui.horizontal(|ui| {
+                            if ui.selectable_label(self.view_mode == ViewMode::Table, "表格模式").clicked() {
+                                self.view_mode = ViewMode::Table;
+                            }
+                            if ui.selectable_label(self.view_mode == ViewMode::Tree, "树形模式").clicked() {
+                                self.view_mode = ViewMode::Tree;
+                            }
+                            if check_game_file_exists(user_id, game_id) {
+                                if ui.button("备份当前存档").clicked() {
+                                    self.data.get_root_id(game_id);
+                                    let parent_id = self.data.get_current_parent(game_id);
+                                    let node_id = self.data.create_node(game_id, parent_id, "未命名备份".to_string(), String::new());
+                                    if backup_game_file(user_id, game_id, node_id).unwrap() {
+                                        self.data.set_current_parent(game_id, node_id as i32);
+                                        save_manager_data(&self.data).unwrap();
+                                        self.show_message(format!("备份成功（ID: {}）", node_id));
+                                    } else {
+                                        self.show_message("备份失败：游戏文件不存在".to_string());
+                                    }
+                                }
+                            }
+                        });
+
+                        ui.add_space(10.0);
+
+                        egui::ScrollArea::vertical().id_source("backup_list_scroll").max_height(bottom_height - 100.0).show(ui, |ui| {
+                            match self.view_mode {
+                                ViewMode::Table => {
+                                    let nodes: Vec<_> = self.data.data.get(&game_id)
+                                        .map(|g| g.nodes.iter().filter(|n| n.parent_id != -1 && !n.file_deleted).cloned().collect())
+                                        .unwrap_or_default();
+
+                                    if nodes.is_empty() {
+                                        ui.label("暂无存档备份");
+                                    } else {
+                                        for node in nodes {
+                                            ui.group(|ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(format!("{}", node.id));
+                                                    ui.label(node.name.clone());
+                                                    ui.label(node.created_at.format("%Y-%m-%d %H:%M:%S").to_string());
+                                                    if !node.note.is_empty() {
+                                                        ui.label(RichText::new(&node.note).color(Color32::GREEN));
+                                                    }
+                                                });
+                                                if ui.button("查看详情").clicked() {
+                                                    self.node_dialog.game_id = game_id;
+                                                    self.node_dialog.node_id = node.id;
+                                                    self.node_dialog.show = true;
+                                                }
+                                            });
+                                        }
+                                    }
+                                }
+                                ViewMode::Tree => {
+                                    let root_id = self.data.get_root_id(game_id);
+                                    self.render_tree_node(ui, game_id, root_id, 0);
+                                }
                             }
                         });
                     }
-                }
-                ViewMode::Tree => {
-                    let root_id = self.data.get_root_id(game_id);
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        self.render_tree_node(ui, game_id, root_id, 0);
-                    });
-                }
-            }
+                },
+            );
         });
 
         if self.node_dialog.show {
