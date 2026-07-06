@@ -28,6 +28,14 @@ struct UserIdDialog {
     show: bool,
 }
 
+struct BackupDialog {
+    game_id: u32,
+    parent_id: i32,
+    name: String,
+    note: String,
+    show: bool,
+}
+
 struct ConfirmAction {
     game_id: u32,
     node_id: u32,
@@ -48,6 +56,7 @@ pub struct PVZManagerApp {
     view_mode: ViewMode,
     node_dialog: NodeDialog,
     user_id_dialog: UserIdDialog,
+    backup_dialog: BackupDialog,
     show_confirm: bool,
     confirm_action: Option<ConfirmAction>,
     confirm_message: String,
@@ -106,6 +115,7 @@ impl PVZManagerApp {
             view_mode: ViewMode::Table,
             node_dialog: NodeDialog { game_id: 0, node_id: 0, show: false, editing: false, edit_name: String::new(), edit_note: String::new() },
             user_id_dialog,
+            backup_dialog: BackupDialog { game_id: 0, parent_id: 0, name: String::new(), note: String::new(), show: false },
             show_confirm: false,
             confirm_action: None,
             confirm_message: String::new(),
@@ -234,7 +244,7 @@ impl PVZManagerApp {
                 self.node_dialog.edit_note = node.note.clone();
             }
 
-            egui::Window::new(format!("节点详情 - {}", node.name))
+            egui::Window::new(format!("备份详情 - {}", node.name))
                 .resizable(false)
                 .show(ctx, |ui| {
                     ui.label(format!("节点编号：{}", node.id));
@@ -250,7 +260,7 @@ impl PVZManagerApp {
                         ui.label(format!("备注：{}", node.note));
                     }
                     
-                    ui.label(format!("父节点：{} (ID: {})", parent_name, node.parent_id));
+                    ui.label(format!("修改自：{} (ID: {})", parent_name, node.parent_id));
                     ui.label(format!("文件状态：{}", if node.file_deleted { "已删除" } else { "存在" }));
 
                     ui.add_space(20.0);
@@ -376,6 +386,48 @@ impl eframe::App for PVZManagerApp {
             return;
         }
 
+        if self.backup_dialog.show {
+            let game_id = self.backup_dialog.game_id;
+            let parent_id = self.backup_dialog.parent_id;
+            egui::Window::new("备份当前存档")
+                .fixed_size([400.0, 200.0])
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label("请输入备份名称和备注：");
+                    ui.add_space(10.0);
+                    ui.label("名称：");
+                    ui.text_edit_singleline(&mut self.backup_dialog.name);
+                    ui.label("备注：");
+                    ui.text_edit_singleline(&mut self.backup_dialog.note);
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("取消").clicked() {
+                            self.backup_dialog.show = false;
+                        }
+                        if ui.button("备份").clicked() {
+                            let name = if self.backup_dialog.name.is_empty() {
+                                "未命名备份".to_string()
+                            } else {
+                                self.backup_dialog.name.clone()
+                            };
+                            let note = self.backup_dialog.note.clone();
+                            let node_id = self.data.create_node(game_id, parent_id, name, note);
+                            if let Some(user_id) = self.data.user_id {
+                                if backup_game_file(user_id, game_id, node_id).unwrap() {
+                                    self.data.set_current_parent(game_id, node_id as i32);
+                                    save_manager_data(&self.data).unwrap();
+                                    self.show_message(format!("备份成功（ID: {}）", node_id));
+                                } else {
+                                    self.show_message("备份失败：游戏文件不存在".to_string());
+                                }
+                            }
+                            self.backup_dialog.show = false;
+                        }
+                    });
+                });
+            return;
+        }
+
         if self.show_confirm {
             egui::Window::new("确认")
                 .fixed_size([300.0, 150.0])
@@ -470,16 +522,14 @@ impl eframe::App for PVZManagerApp {
                             }
                             if check_game_file_exists(user_id, game_id) {
                                 if ui.button("备份当前存档").clicked() {
-                                    self.data.get_root_id(game_id);
                                     let parent_id = self.data.get_current_parent(game_id);
-                                    let node_id = self.data.create_node(game_id, parent_id, "未命名备份".to_string(), String::new());
-                                    if backup_game_file(user_id, game_id, node_id).unwrap() {
-                                        self.data.set_current_parent(game_id, node_id as i32);
-                                        save_manager_data(&self.data).unwrap();
-                                        self.show_message(format!("备份成功（ID: {}）", node_id));
-                                    } else {
-                                        self.show_message("备份失败：游戏文件不存在".to_string());
-                                    }
+                                    self.backup_dialog = BackupDialog {
+                                        game_id,
+                                        parent_id,
+                                        name: String::new(),
+                                        note: String::new(),
+                                        show: true,
+                                    };
                                 }
                             }
                         });
