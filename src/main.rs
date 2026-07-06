@@ -15,7 +15,7 @@ fn main() {
         }
     } else {
         let native_options = eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default().with_inner_size(egui::vec2(900.0, 600.0)),
+            viewport: egui::ViewportBuilder::default().with_inner_size(egui::vec2(1100.0, 800.0)),
             ..eframe::NativeOptions::default()
         };
         if let Err(e) = eframe::run_native(

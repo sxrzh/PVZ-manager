@@ -65,7 +65,7 @@ impl PVZManagerApp {
         if let Ok(font_bytes) = std::fs::read(msyh_path) {
             fonts.font_data.insert(
                 "msyh".to_string(),
-                egui::FontData::from_owned(font_bytes),
+                egui::FontData::from_owned(font_bytes).into(),
             );
             fonts
                 .families
@@ -79,19 +79,19 @@ impl PVZManagerApp {
                 .push("msyh".to_string());
         }
         cc.egui_ctx.set_fonts(fonts);
-        
+
         let mut style = (*cc.egui_ctx.style()).clone();
-        style.text_styles.insert(egui::TextStyle::Heading, egui::FontId::proportional(28.0));
-        style.text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(16.0));
-        style.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(16.0));
-        style.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional(14.0));
-        cc.egui_ctx.set_style(egui::Style::from(style));
-        
-        let mut visuals = egui::Visuals::light();
-        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(60, 120, 200);
-        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(80, 140, 220);
-        visuals.selection.bg_fill = egui::Color32::from_rgb(60, 120, 200);
-        cc.egui_ctx.set_visuals(visuals);
+        // style.text_styles.insert(egui::TextStyle::Heading, egui::FontId::proportional(64.0));
+        // style.text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(44.0));
+        // style.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(44.0));
+        // style.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional(40.0));
+
+        style.visuals = egui::Visuals::light();
+        style.visuals.widgets.active.bg_fill = egui::Color32::from_rgb(60, 120, 200);
+        style.visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(80, 140, 220);
+        style.visuals.selection.bg_fill = egui::Color32::from_rgb(60, 120, 200);
+
+        cc.egui_ctx.set_style(std::sync::Arc::new(style));
         
         let user_id_dialog = UserIdDialog {
             user_id: String::new(),
@@ -328,6 +328,28 @@ impl PVZManagerApp {
 
 impl eframe::App for PVZManagerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // 每帧设置样式，确保字体大小生效
+        let mut style = (*ctx.style()).clone();
+
+        // 条件编译：large-font feature 使用大字体，否则使用原字体大小
+        #[cfg(feature = "large-font")]
+        {
+            style.text_styles.insert(egui::TextStyle::Heading, egui::FontId::proportional(64.0));
+            style.text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(44.0));
+            style.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(44.0));
+            style.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional(40.0));
+        }
+
+        #[cfg(not(feature = "large-font"))]
+        {
+            style.text_styles.insert(egui::TextStyle::Heading, egui::FontId::proportional(32.0));
+            style.text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(22.0));
+            style.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(22.0));
+            style.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional(20.0));
+        }
+
+        ctx.set_style(std::sync::Arc::new(style));
+
         if self.user_id_dialog.show {
             egui::Window::new("设置用户编号")
                 .fixed_size([300.0, 150.0])
@@ -423,6 +445,9 @@ impl eframe::App for PVZManagerApp {
                     });
                 },
             );
+
+            ui.separator();
+            ui.add_space(5.0);
 
             ui.allocate_ui_with_layout(
                 egui::vec2(ui.available_width(), bottom_height),
