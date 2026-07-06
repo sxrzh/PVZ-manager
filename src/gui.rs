@@ -159,8 +159,17 @@ impl PVZManagerApp {
                         if let Some(node_mut) = self.data.find_node_mut(action.game_id, action.node_id) {
                             node_mut.file_deleted = true;
                         }
+                        // 删除后清理无用节点
+                        let deleted_nodes = self.data.clean_empty_nodes(action.game_id);
+                        for node_id in &deleted_nodes {
+                            delete_backup_file(action.user_id, action.game_id, *node_id).unwrap();
+                        }
                         save_manager_data(&self.data).unwrap();
-                        self.show_message("删除成功".to_string());
+                        if deleted_nodes.is_empty() {
+                            self.show_message("删除成功".to_string());
+                        } else {
+                            self.show_message(format!("删除成功，同时清理了 {} 个无用节点", deleted_nodes.len()));
+                        }
                     } else {
                         self.show_message("删除失败".to_string());
                     }
@@ -316,7 +325,7 @@ impl PVZManagerApp {
                                 );
                             }
                         } else {
-                            ui.label(RichText::new("根节点不能恢复或删除").color(Color32::RED));
+                            ui.label(RichText::new("此节点不能恢复或删除").color(Color32::RED));
                             
                             ui.add_space(10.0);
                             
@@ -468,7 +477,7 @@ impl eframe::App for PVZManagerApp {
         };
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading(format!("PVZ 存档管理器 - 用户 {}", user_id));
+            ui.heading(format!("《植物大战僵尸》存档管理器 - 用户 {}", user_id));
             ui.add_space(10.0);
 
             let available_height = ui.available_height();
@@ -519,6 +528,15 @@ impl eframe::App for PVZManagerApp {
                             }
                             if ui.selectable_label(self.view_mode == ViewMode::Tree, "树形模式").clicked() {
                                 self.view_mode = ViewMode::Tree;
+                                // 切换到树形模式时清理无用节点
+                                let deleted_nodes = self.data.clean_empty_nodes(game_id);
+                                for node_id in &deleted_nodes {
+                                    delete_backup_file(user_id, game_id, *node_id).unwrap();
+                                }
+                                if !deleted_nodes.is_empty() {
+                                    save_manager_data(&self.data).unwrap();
+                                    self.show_message(format!("清理了 {} 个无用节点", deleted_nodes.len()));
+                                }
                             }
                             if check_game_file_exists(user_id, game_id) {
                                 if ui.button("备份当前存档").clicked() {

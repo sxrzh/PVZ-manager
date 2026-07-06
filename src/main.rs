@@ -19,7 +19,7 @@ fn main() {
             ..eframe::NativeOptions::default()
         };
         if let Err(e) = eframe::run_native(
-            "PVZ 存档管理器",
+            "《植物大战僵尸》存档管理器",
             native_options,
             Box::new(|cc| Ok(Box::new(gui::PVZManagerApp::new(cc)))),
         ) {
