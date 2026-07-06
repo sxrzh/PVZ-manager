@@ -19,3 +19,7 @@ anyhow = "1.0"
 walkdir = "2.0"
 dirs = "5.0"
 winapi = { version = "0.3", features = ["winuser", "windef", "processthreadsapi", "shellapi"] }
+ico = "0.3"
+
+[build-dependencies]
+winres = "0.1"
