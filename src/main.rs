@@ -21,7 +21,7 @@ fn main() {
         if let Err(e) = eframe::run_native(
             "PVZ 存档管理器",
             native_options,
-            Box::new(|cc| Box::new(gui::PVZManagerApp::new(cc))),
+            Box::new(|cc| Ok(Box::new(gui::PVZManagerApp::new(cc)))),
         ) {
             eprintln!("Error: {}", e);
             std::process::exit(1);

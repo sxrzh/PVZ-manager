@@ -60,14 +60,14 @@ pub fn run_cli() -> Result<()> {
         Some(Commands::SetUser { user_id: _ }) => {
         }
         Some(Commands::ListGames) => {
-            let game_ids = load_game_ids()?;
+            let game_ids = load_game_ids();
             println!("Available games:");
             for (name, id) in game_ids {
                 println!("  {} (ID: {})", name, id);
             }
         }
         Some(Commands::SearchGames { query }) => {
-            let game_ids = load_game_ids()?;
+            let game_ids = load_game_ids();
             let results = search_game_id(&game_ids, &query);
             println!("Search results for '{}':", query);
             for (name, id) in results {

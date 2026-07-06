@@ -18,6 +18,9 @@ struct NodeDialog {
     game_id: u32,
     node_id: u32,
     show: bool,
+    editing: bool,
+    edit_name: String,
+    edit_note: String,
 }
 
 struct UserIdDialog {
@@ -55,7 +58,7 @@ impl PVZManagerApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         init_save_path().unwrap();
         let data = load_manager_data().unwrap();
-        let game_ids = load_game_ids().unwrap_or_default();
+        let game_ids = load_game_ids();
         
         let mut fonts = FontDefinitions::default();
         let msyh_path = "C:\\Windows\\Fonts\\msyh.ttc";
@@ -68,14 +71,27 @@ impl PVZManagerApp {
                 .families
                 .entry(egui::FontFamily::Proportional)
                 .or_default()
-                .insert(0, "msyh".to_string());
+                .push("msyh".to_string());
             fonts
                 .families
                 .entry(egui::FontFamily::Monospace)
                 .or_default()
-                .insert(0, "msyh".to_string());
-            cc.egui_ctx.set_fonts(fonts);
+                .push("msyh".to_string());
         }
+        cc.egui_ctx.set_fonts(fonts);
+        
+        let mut style = (*cc.egui_ctx.style()).clone();
+        style.text_styles.insert(egui::TextStyle::Heading, egui::FontId::proportional(28.0));
+        style.text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(16.0));
+        style.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(16.0));
+        style.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional(14.0));
+        cc.egui_ctx.set_style(egui::Style::from(style));
+        
+        let mut visuals = egui::Visuals::light();
+        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(60, 120, 200);
+        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(80, 140, 220);
+        visuals.selection.bg_fill = egui::Color32::from_rgb(60, 120, 200);
+        cc.egui_ctx.set_visuals(visuals);
         
         let user_id_dialog = UserIdDialog {
             user_id: String::new(),
@@ -88,7 +104,7 @@ impl PVZManagerApp {
             search_query: String::new(),
             selected_game: None,
             view_mode: ViewMode::Table,
-            node_dialog: NodeDialog { game_id: 0, node_id: 0, show: false },
+            node_dialog: NodeDialog { game_id: 0, node_id: 0, show: false, editing: false, edit_name: String::new(), edit_note: String::new() },
             user_id_dialog,
             show_confirm: false,
             confirm_action: None,
@@ -169,7 +185,7 @@ impl PVZManagerApp {
                 let color = match (node.parent_id == -1, node.file_deleted) {
                     (true, _) => Color32::GRAY,
                     (false, true) => Color32::RED,
-                    (false, false) => Color32::WHITE,
+                    (false, false) => Color32::BLACK,
                 };
                 ui.label(RichText::new(format!("{} (ID: {})", node.name, node.id)).color(color));
                 if ui.button("查看").clicked() {
@@ -213,53 +229,96 @@ impl PVZManagerApp {
                 "未知".to_string()
             };
 
+            if !self.node_dialog.editing {
+                self.node_dialog.edit_name = node.name.clone();
+                self.node_dialog.edit_note = node.note.clone();
+            }
+
             egui::Window::new(format!("节点详情 - {}", node.name))
                 .resizable(false)
                 .show(ctx, |ui| {
                     ui.label(format!("节点编号：{}", node.id));
-                    ui.label(format!("名称：{}", node.name));
-                    ui.label(format!("创建时间：{}", node.created_at.format("%Y-%m-%d %H:%M:%S")));
-                    ui.label(format!("备注：{}", node.note));
+                    
+                    if self.node_dialog.editing {
+                        ui.label("名称：");
+                        ui.text_edit_singleline(&mut self.node_dialog.edit_name);
+                        ui.label("备注：");
+                        ui.text_edit_multiline(&mut self.node_dialog.edit_note);
+                    } else {
+                        ui.label(format!("名称：{}", node.name));
+                        ui.label(format!("创建时间：{}", node.created_at.format("%Y-%m-%d %H:%M:%S")));
+                        ui.label(format!("备注：{}", node.note));
+                    }
+                    
                     ui.label(format!("父节点：{} (ID: {})", parent_name, node.parent_id));
                     ui.label(format!("文件状态：{}", if node.file_deleted { "已删除" } else { "存在" }));
 
                     ui.add_space(20.0);
 
-                    if node.parent_id != -1 {
-                        if !node.file_deleted {
-                            if ui.add(Button::new(RichText::new("恢复到此备份").text_style(TextStyle::Heading))).clicked() {
+                    if self.node_dialog.editing {
+                        ui.horizontal(|ui| {
+                            if ui.button("保存").clicked() {
+                                if let Some(node_mut) = self.data.find_node_mut(game_id, node_id) {
+                                    node_mut.name = self.node_dialog.edit_name.clone();
+                                    node_mut.note = self.node_dialog.edit_note.clone();
+                                }
+                                save_manager_data(&self.data).unwrap();
+                                self.node_dialog.editing = false;
+                                self.show_message("修改成功".to_string());
+                            }
+                            if ui.button("取消").clicked() {
+                                self.node_dialog.editing = false;
+                            }
+                        });
+                    } else {
+                        if node.parent_id != -1 {
+                            if !node.file_deleted {
+                                if ui.add(Button::new(RichText::new("恢复到此备份").text_style(TextStyle::Heading))).clicked() {
+                                    self.show_confirm(
+                                        "确定要恢复到此备份吗？这将覆盖当前游戏存档！".to_string(),
+                                        ConfirmAction {
+                                            game_id,
+                                            node_id,
+                                            user_id,
+                                            action_type: ConfirmActionType::Restore,
+                                        }
+                                    );
+                                }
+                            }
+
+                            ui.add_space(10.0);
+
+                            if ui.add(Button::new(RichText::new("修改名称/备注").text_style(TextStyle::Heading))).clicked() {
+                                self.node_dialog.editing = true;
+                            }
+
+                            ui.add_space(10.0);
+
+                            if ui.add(Button::new(RichText::new("删除此备份").text_style(TextStyle::Heading))).clicked() {
                                 self.show_confirm(
-                                    "确定要恢复到此备份吗？这将覆盖当前游戏存档！".to_string(),
+                                    "确定要删除此备份吗？".to_string(),
                                     ConfirmAction {
                                         game_id,
                                         node_id,
                                         user_id,
-                                        action_type: ConfirmActionType::Restore,
+                                        action_type: ConfirmActionType::Delete,
                                     }
                                 );
                             }
+                        } else {
+                            ui.label(RichText::new("根节点不能恢复或删除").color(Color32::RED));
+                            
+                            ui.add_space(10.0);
+                            
+                            if ui.add(Button::new(RichText::new("修改名称/备注").text_style(TextStyle::Heading))).clicked() {
+                                self.node_dialog.editing = true;
+                            }
                         }
-
-                        ui.add_space(10.0);
-
-                        if ui.add(Button::new(RichText::new("删除此备份").text_style(TextStyle::Heading))).clicked() {
-                            self.show_confirm(
-                                "确定要删除此备份吗？删除后可以恢复，但文件将被移除！".to_string(),
-                                ConfirmAction {
-                                    game_id,
-                                    node_id,
-                                    user_id,
-                                    action_type: ConfirmActionType::Delete,
-                                }
-                            );
-                        }
-                    } else {
-                        ui.label(RichText::new("根节点不能恢复或删除").color(Color32::RED));
                     }
 
                     ui.add_space(20.0);
 
-                    if ui.button("关闭").clicked() {
+                    if !self.node_dialog.editing && ui.button("关闭").clicked() {
                         self.node_dialog.show = false;
                     }
                 });
@@ -349,7 +408,7 @@ impl eframe::App for PVZManagerApp {
                     ui.text_edit_singleline(&mut self.search_query);
                     let results = search_game_id(&self.game_ids, &self.search_query);
                     
-                    egui::ScrollArea::vertical().id_source("search_results_scroll").max_height(top_height - 60.0).show(ui, |ui| {
+                    egui::ScrollArea::vertical().id_salt("search_results_scroll").max_height(top_height - 60.0).show(ui, |ui| {
                         if !results.is_empty() {
                             ui.group(|ui| {
                                 ui.label("搜索结果：");
@@ -402,7 +461,7 @@ impl eframe::App for PVZManagerApp {
 
                         ui.add_space(10.0);
 
-                        egui::ScrollArea::vertical().id_source("backup_list_scroll").max_height(bottom_height - 100.0).show(ui, |ui| {
+                        egui::ScrollArea::vertical().id_salt("backup_list_scroll").max_height(bottom_height - 100.0).show(ui, |ui| {
                             match self.view_mode {
                                 ViewMode::Table => {
                                     let nodes: Vec<_> = self.data.data.get(&game_id)
