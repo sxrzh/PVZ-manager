@@ -6,6 +6,7 @@ edition = "2024"
 [features]
 default = []
 large-font = []
+simple = []
 
 [dependencies]
 eframe = "0.32"

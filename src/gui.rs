@@ -206,6 +206,9 @@ impl PVZManagerApp {
                     (false, true) => Color32::RED,
                     (false, false) => Color32::BLACK,
                 };
+                #[cfg(feature = "simple")]
+                ui.label(RichText::new(node.name.clone()).color(color));
+                #[cfg(not(feature = "simple"))]
                 ui.label(RichText::new(format!("{} (ID: {})", node.name, node.id)).color(color));
                 if ui.button("查看").clicked() {
                     self.node_dialog.game_id = game_id;
@@ -256,6 +259,7 @@ impl PVZManagerApp {
             egui::Window::new(format!("备份详情 - {}", node.name))
                 .resizable(false)
                 .show(ctx, |ui| {
+                    #[cfg(not(feature = "simple"))]
                     ui.label(format!("节点编号：{}", node.id));
                     
                     if self.node_dialog.editing {
@@ -269,7 +273,10 @@ impl PVZManagerApp {
                         ui.label(format!("备注：{}", node.note));
                     }
                     
+                    #[cfg(not(feature = "simple"))]
                     ui.label(format!("修改自：{} (ID: {})", parent_name, node.parent_id));
+                    #[cfg(feature = "simple")]
+                    ui.label(format!("修改自：{}", parent_name));
                     ui.label(format!("文件状态：{}", if node.file_deleted { "已删除" } else { "存在" }));
 
                     ui.add_space(20.0);
@@ -425,6 +432,9 @@ impl eframe::App for PVZManagerApp {
                                 if backup_game_file(user_id, game_id, node_id).unwrap() {
                                     self.data.set_current_parent(game_id, node_id as i32);
                                     save_manager_data(&self.data).unwrap();
+                                    #[cfg(feature = "simple")]
+                                    self.show_message("备份成功".to_string());
+                                    #[cfg(not(feature = "simple"))]
                                     self.show_message(format!("备份成功（ID: {}）", node_id));
                                 } else {
                                     self.show_message("备份失败：游戏文件不存在".to_string());
@@ -496,7 +506,11 @@ impl eframe::App for PVZManagerApp {
                             ui.group(|ui| {
                                 ui.label("搜索结果：");
                                 for (name, id) in &results {
-                                    if ui.button(format!("{} (ID: {})", name, id)).clicked() {
+                                    #[cfg(feature = "simple")]
+                                    let button_text = name.clone();
+                                    #[cfg(not(feature = "simple"))]
+                                    let button_text = format!("{} (ID: {})", name, id);
+                                    if ui.button(button_text).clicked() {
                                         self.selected_game = Some(*id);
                                         self.search_query.clear();
                                     }
@@ -518,6 +532,9 @@ impl eframe::App for PVZManagerApp {
                         ui.label("请从上方搜索框输入游戏名称或编号进行选择");
                     } else {
                         let game_id = self.selected_game.unwrap();
+                        #[cfg(feature = "simple")]
+                        ui.label(format!("当前游戏：{}", self.get_game_name(game_id)));
+                        #[cfg(not(feature = "simple"))]
                         ui.label(format!("当前游戏：{} (ID: {})", self.get_game_name(game_id), game_id));
 
                         ui.add_space(10.0);
